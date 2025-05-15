@@ -14,7 +14,7 @@ import java.io.Serializable;
 @AllArgsConstructor
 @NoArgsConstructor
 @Data
-public class DimBaseCate  implements Serializable {
+public class DimBaseCategory implements Serializable {
 
     private String id;
     private String b3name;

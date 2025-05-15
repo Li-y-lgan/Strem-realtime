@@ -7,6 +7,6 @@ package com.reatime.util;
  * @description: 公共数据
  */
 public class Config {
-    public static final String KAFKA_BOOT_SERVER = "cdh01:9092";
+    public static final String KAFKA_BOOT_SERVER = "cdh01:9092,cdh02:9092,cdh03:9092";
     public static final String KAFKA_TOPIC = "disk";
 }

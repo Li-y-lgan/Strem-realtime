@@ -1,8 +1,8 @@
-package com.reatime.funtion;
+package com.reatime.func;
 
 
 import com.alibaba.fastjson.JSONObject;
-import com.reatime.bean.DimBaseCate;
+import com.reatime.bean.DimBaseCategory;
 import com.reatime.bean.DimCategoryCompare;
 import com.reatime.util.JdbcUtils;
 import org.apache.flink.api.common.functions.RichMapFunction;
@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+
 /**
  * @Package com.retailersv1.func.MapDeviceMarkModel
  * @Author li.yan
@@ -26,16 +27,16 @@ public class MapDeviceAndSearchMarkModelFunc extends RichMapFunction<JSONObject,
 
     private final double deviceRate;
     private final double searchRate;
-    private final Map<String, DimBaseCate> categoryMap;
+    private final Map<String, DimBaseCategory> categoryMap;
     private List<DimCategoryCompare> dimCategoryCompares;
     private Connection connection;
 
-    public MapDeviceAndSearchMarkModelFunc(List<DimBaseCate> dimBaseCategories, double deviceRate, double searchRate) {
+    public MapDeviceAndSearchMarkModelFunc(List<DimBaseCategory> dimBaseCategories, double deviceRate, double searchRate) {
         this.deviceRate = deviceRate;
         this.searchRate = searchRate;
         this.categoryMap = new HashMap<>();
         // 将 DimBaseCategory 对象存储到 Map中  加快查询
-        for (DimBaseCate category : dimBaseCategories) {
+        for (DimBaseCategory category : dimBaseCategories) {
             categoryMap.put(category.getB3name(), category);
         }
     }
@@ -43,17 +44,17 @@ public class MapDeviceAndSearchMarkModelFunc extends RichMapFunction<JSONObject,
     @Override
     public void open(Configuration parameters) throws Exception {
         connection = JdbcUtils.getMySQLConnection(
-                "jdbc:mysql://cdh03:3306/flink_realtime",
+                "jdbc:mysql://cdh03:3306/realtime_v1",
                 "root",
                 "root");
-        String sql = "select id, category_name, search_category from flink_realtime.category_compare_dic;";
+        String sql = "select id, category_name, search_category from realtime_v1.category_compare_dic;";
         dimCategoryCompares = JdbcUtils.queryList2(connection, sql, DimCategoryCompare.class, true);
         super.open(parameters);
     }
 
 
     @Override
-    public JSONObject map(JSONObject jsonObject) throws Exception {
+    public JSONObject map(JSONObject jsonObject) {
         String os = jsonObject.getString("os");
         String[] labels = os.split(",");
         String judge_os = labels[0];
@@ -65,19 +66,19 @@ public class MapDeviceAndSearchMarkModelFunc extends RichMapFunction<JSONObject,
             jsonObject.put("device_30_34", round(0.5 * deviceRate));
             jsonObject.put("device_35_39", round(0.4 * deviceRate));
             jsonObject.put("device_40_49", round(0.3 * deviceRate));
-            jsonObject.put("device_50", round(0.2 * deviceRate));
+            jsonObject.put("device_50+", round(0.2 * deviceRate));
         } else if (judge_os.equals("Android")) {
             jsonObject.put("device_18_24", round(0.8 * deviceRate));
             jsonObject.put("device_25_29", round(0.7 * deviceRate));
             jsonObject.put("device_30_34", round(0.6 * deviceRate));
             jsonObject.put("device_35_39", round(0.5 * deviceRate));
             jsonObject.put("device_40_49", round(0.4 * deviceRate));
-            jsonObject.put("device_50", round(0.3 * deviceRate));
+            jsonObject.put("device_50+", round(0.3 * deviceRate));
         }
 
         String searchItem = jsonObject.getString("search_item");
         if (searchItem != null && !searchItem.isEmpty()) {
-            DimBaseCate category = categoryMap.get(searchItem);
+            DimBaseCategory category = categoryMap.get(searchItem);
             if (category != null) {
                 jsonObject.put("b1_category", category.getB1name());
             }
@@ -104,7 +105,7 @@ public class MapDeviceAndSearchMarkModelFunc extends RichMapFunction<JSONObject,
                 jsonObject.put("search_30_34", round(0.5 * searchRate));
                 jsonObject.put("search_35_39", round(0.3 * searchRate));
                 jsonObject.put("search_40_49", round(0.2 * searchRate));
-                jsonObject.put("search_50", round(0.1 * searchRate));
+                jsonObject.put("search_50+", round(0.1 * searchRate));
                 break;
             case "性价比":
                 jsonObject.put("search_18_24", round(0.2 * searchRate));
@@ -112,7 +113,7 @@ public class MapDeviceAndSearchMarkModelFunc extends RichMapFunction<JSONObject,
                 jsonObject.put("search_30_34", round(0.6 * searchRate));
                 jsonObject.put("search_35_39", round(0.7 * searchRate));
                 jsonObject.put("search_40_49", round(0.8 * searchRate));
-                jsonObject.put("search_50", round(0.8 * searchRate));
+                jsonObject.put("search_50+", round(0.8 * searchRate));
                 break;
             case "健康与养生":
             case "家庭与育儿":
@@ -121,7 +122,7 @@ public class MapDeviceAndSearchMarkModelFunc extends RichMapFunction<JSONObject,
                 jsonObject.put("search_30_34", round(0.4 * searchRate));
                 jsonObject.put("search_35_39", round(0.6 * searchRate));
                 jsonObject.put("search_40_49", round(0.8 * searchRate));
-                jsonObject.put("search_50", round(0.7 * searchRate));
+                jsonObject.put("search_50+", round(0.7 * searchRate));
                 break;
             case "科技与数码":
                 jsonObject.put("search_18_24", round(0.8 * searchRate));
@@ -129,7 +130,7 @@ public class MapDeviceAndSearchMarkModelFunc extends RichMapFunction<JSONObject,
                 jsonObject.put("search_30_34", round(0.4 * searchRate));
                 jsonObject.put("search_35_39", round(0.3 * searchRate));
                 jsonObject.put("search_40_49", round(0.2 * searchRate));
-                jsonObject.put("search_50", round(0.1 * searchRate));
+                jsonObject.put("search_50+", round(0.1 * searchRate));
                 break;
             case "学习与发展":
                 jsonObject.put("search_18_24", round(0.4 * searchRate));
@@ -137,7 +138,7 @@ public class MapDeviceAndSearchMarkModelFunc extends RichMapFunction<JSONObject,
                 jsonObject.put("search_30_34", round(0.6 * searchRate));
                 jsonObject.put("search_35_39", round(0.7 * searchRate));
                 jsonObject.put("search_40_49", round(0.8 * searchRate));
-                jsonObject.put("search_50", round(0.7 * searchRate));
+                jsonObject.put("search_50+", round(0.7 * searchRate));
                 break;
             default:
                 jsonObject.put("search_18_24", 0);
@@ -145,7 +146,7 @@ public class MapDeviceAndSearchMarkModelFunc extends RichMapFunction<JSONObject,
                 jsonObject.put("search_30_34", 0);
                 jsonObject.put("search_35_39", 0);
                 jsonObject.put("search_40_49", 0);
-                jsonObject.put("search_50", 0);
+                jsonObject.put("search_50+", 0);
         }
 
 

@@ -1,6 +1,5 @@
 package com.reatime;
 
-
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
@@ -20,16 +19,15 @@ import org.apache.flink.util.OutputTag;
 
 /**
  * @Package PACKAGE_NAME.Damo_Disk
- * @Author guo.jia.hui
+ * @Author li.yan
  * @Date 2025/5/12 22:20
  * @description:
  */
 public class Damo_Disk {
     public static void main(String[] args) throws Exception {
-        // 1. 创建 Flink 执行环境
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        // 2. 配置 KafkaSource
+        //  配置Kafka数据源构建一个Kafka数据源，从Kafka主题disk_data中读取数据
         KafkaSource<String> source = KafkaSource.<String>builder()
                 .setBootstrapServers("cdh01:9092")
                 .setTopics("disk_data")
@@ -38,28 +36,39 @@ public class Damo_Disk {
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
 
-        // 3. 将 KafkaSource 添加到作业
+        //  将Kafka数据源添加到作业从Kafka数据源创建数据流，不生成水位线
         DataStreamSource<String> disk = env.fromSource(source, WatermarkStrategy.noWatermarks(), "Kafka Source");
+        // 将JSON字符串转换为JSONObject对象
         SingleOutputStreamOperator<JSONObject> disk_json = disk.map((MapFunction<String, JSONObject>) JSON::parseObject);
+        // 打印数据源数据
         disk_json.print("数据源数据");
 
+        // 定义侧输出标签定义一个侧输出标签，用于输出用户补充信息数据
         OutputTag<String> user_info_sup_msg = new OutputTag<String>("user_info_sup_msg") {
         };
+        // 处理JSON数据，根据表名进行分流
         SingleOutputStreamOperator<String> process = disk_json.process(new ProcessFunction<JSONObject, String>() {
             @Override
             public void processElement(JSONObject jsonObject, ProcessFunction<JSONObject, String>.Context context, Collector<String> collector) {
                 String table = jsonObject.getJSONObject("source").getString("table");
                 if (table != null && table.equals("user_info")) {
+                    // 如果表名为user_info，将数据发送到主流
                     collector.collect(jsonObject.toJSONString());
-                } else {
+                } else if (table != null && table.equals("user_info_sup")){
+                    // 如果表名为user_info_sup，将数据发送到侧输出流
                     context.output(user_info_sup_msg, jsonObject.toString());
                 }
             }
         });
+        // 获取侧输出流
         SideOutputDataStream<String> userinfo_sup_msg = process.getSideOutput(user_info_sup_msg);
+        // 打印主流数据
         process.print("主流数据");
+        // 打印侧输出流数据
         userinfo_sup_msg.print("测流数据");
 
+        // 5. 配置Kafka Sink
+        // 构建一个Kafka Sink，用于将主流数据写入Kafka主题user_info
         KafkaSink<String> sink = KafkaSink.<String>builder()
                 .setBootstrapServers("cdh01:9092")
                 .setRecordSerializer(KafkaRecordSerializationSchema.builder()
@@ -68,8 +77,11 @@ public class Damo_Disk {
                         .build()
                 )
                 .build();
+        // 将主流数据写入Kafka主题user_info
         process.sinkTo(sink);
 
+        // 6. 配置另一个Kafka Sink
+        // 构建一个Kafka Sink，用于将侧输出流数据写入Kafka主题user_info_sup_msg
         KafkaSink<String> sink2 = KafkaSink.<String>builder()
                 .setBootstrapServers("cdh01:9092")
                 .setRecordSerializer(KafkaRecordSerializationSchema.builder()
@@ -78,9 +90,10 @@ public class Damo_Disk {
                         .build()
                 )
                 .build();
+        // 将侧输出流数据写入Kafka主题user_info_sup_msg
         userinfo_sup_msg.sinkTo(sink2);
 
-        // 4. 执行作业
+        // 7. 执行作业
         env.execute("Flink Kafka Consumer");
     }
 }

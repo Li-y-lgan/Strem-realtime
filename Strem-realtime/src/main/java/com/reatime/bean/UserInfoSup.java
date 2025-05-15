@@ -22,3 +22,4 @@ public class UserInfoSup {
     public String unitWeight;
     public Long tsMs;
 }
+

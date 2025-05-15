@@ -16,44 +16,51 @@ import java.time.Duration;
 
 /**
  * @Package PACKAGE_NAME.Log_Disk
- * @Author guo.jia.hui
+ * @Author li.yan
  * @Date 2025/5/13 16:18
  * @description: 处理日志数据
  */
 public class Log_Disk {
     public static void main(String[] args) throws Exception {
-        // 初始化 Flink 执行环境
+        // 1. 初始化Flink执行环境
+        // 创建一个流执行环境，用于构建和执行Flink作业
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        // 设置并行度为1
         env.setParallelism(1);
 
-        // 获取 Kafka 数据源
+        // 2. 获取Kafka数据源
+        // 从Kafka主题topic_log中读取日志数据
         DataStreamSource<String> topic_log = KafkaUtil.getKafkaConsumer(env, Config.KAFKA_BOOT_SERVER, "topic_log");
 
-        // 打印 Kafka 数据
-        //topic_log.print();
-
+        // 3. 处理日志数据
+        // 将JSON字符串转换为JSONObject对象
         SingleOutputStreamOperator<JSONObject> Topic_log_json = topic_log.map(new MapFunction<String, JSONObject>() {
             @Override
-            public JSONObject map(String s) throws Exception {
+            public JSONObject map(String s) {
                 return JSONObject.parseObject(s);
             }
         });
 
-        //基础标签topic的数据
+        // 4. 获取基础标签topic的数据
+        // 从Kafka主题disk中读取基础标签数据
         DataStreamSource<String> disk = KafkaUtil.getKafkaConsumer(env, Config.KAFKA_BOOT_SERVER, "disk");
+        // 将JSON字符串转换为JSONObject对象，并分配时间戳和水印，允许20秒的乱序
         SingleOutputStreamOperator<JSONObject> disk_json = disk.map(new MapFunction<String, JSONObject>() {
             @Override
-            public JSONObject map(String s) throws Exception {
+            public JSONObject map(String s) {
                 return JSON.parseObject(s);
             }
         }).assignTimestampsAndWatermarks(WatermarkStrategy
                 .<JSONObject>forBoundedOutOfOrderness(Duration.ofSeconds(20))
                 .withTimestampAssigner((event, timestamp) -> event.getLong("ts")));
+        // 打印基础标签数据
         disk_json.print();
 
+        // 5. 处理日志数据
+        // 从日志数据中提取设备ID、用户ID和时间戳，并封装成新的JSONObject对象
         SingleOutputStreamOperator<JSONObject> process = Topic_log_json.process(new ProcessFunction<JSONObject, JSONObject>() {
             @Override
-            public void processElement(JSONObject jsonObject, ProcessFunction<JSONObject, JSONObject>.Context context, Collector<JSONObject> collector) throws Exception {
+            public void processElement(JSONObject jsonObject, ProcessFunction<JSONObject, JSONObject>.Context context, Collector<JSONObject> collector) {
                 JSONObject log_disk = new JSONObject();
                 JSONObject common = jsonObject.getJSONObject("common");
                 String mid = common.getString("mid");
@@ -69,24 +76,10 @@ public class Log_Disk {
         }).assignTimestampsAndWatermarks(WatermarkStrategy
                 .<JSONObject>forBoundedOutOfOrderness(Duration.ofSeconds(20))
                 .withTimestampAssigner((event, timestamp) -> event.getLong("ts")));
+        // 打印处理后的日志数据
         process.print("数据处理");
 
-//        SingleOutputStreamOperator<JSONObject> operator = process
-//                .keyBy(json -> json.getString("uid"))
-//                .intervalJoin(disk_json.keyBy(json -> json.getString("uid")))
-//                .between(Time.minutes(-30), Time.minutes(30))
-//                .process(new ProcessJoinFunction<JSONObject, JSONObject, JSONObject>() {
-//
-//                    @Override
-//                    public void processElement(JSONObject left, JSONObject right, ProcessJoinFunction<JSONObject, JSONObject, JSONObject>.Context context, Collector<JSONObject> collector) throws Exception {
-//                        right.putAll(left);
-//                        collector.collect(right);
-//                    }
-//                });
-//        operator.print("interval连接");
-
-
-        // 执行 Flink 任务
+        // 6. 执行Flink作业
         env.execute("Log Disk Processing");
     }
 }

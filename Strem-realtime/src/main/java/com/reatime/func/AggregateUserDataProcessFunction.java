@@ -1,6 +1,5 @@
-package com.reatime.funtion;
+package com.reatime.func;
 
-;
 import com.alibaba.fastjson.JSONObject;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
@@ -19,24 +18,23 @@ import java.util.Set;
 
 /**
  * @Package com.retailersv1.func.AggregateUserDataProcessFunction
- * @Authorli.yan
+ * @Author li.yan
  * @Date 2025/5/14 16:28
- * @description:
+ * @description: 该类用于聚合用户数据，统计 PV 并收集设备信息和搜索词。
  */
-public class AggregateUserDataProcessFunction extends KeyedProcessFunction<String, JSONObject,JSONObject> {
+public class AggregateUserDataProcessFunction extends KeyedProcessFunction<String, JSONObject, JSONObject> {
 
     private transient ValueState<Long> pvState;
     private transient MapState<String, Set<String>> fieldsState;
 
-
     @Override
     public void open(Configuration parameters) throws Exception {
-        // 初始化PV状态
+        // 初始化 PV 状态
         pvState = getRuntimeContext().getState(
                 new ValueStateDescriptor<>("pv-state", Long.class)
         );
 
-        // 初始化字段集合状态（使用TypeHint保留泛型信息）
+        // 初始化字段集合状态（使用 TypeHint 保留泛型信息）
         MapStateDescriptor<String, Set<String>> fieldsDescriptor =
                 new MapStateDescriptor<>(
                         "fields-state",
@@ -47,10 +45,9 @@ public class AggregateUserDataProcessFunction extends KeyedProcessFunction<Strin
         fieldsState = getRuntimeContext().getMapState(fieldsDescriptor);
     }
 
-
     @Override
     public void processElement(JSONObject value, Context ctx, Collector<JSONObject> out) throws Exception {
-        // 更新PV
+        // 更新 PV
         Long pv = pvState.value() == null ? 1L : pvState.value() + 1;
         pvState.update(pv);
 
@@ -71,7 +68,7 @@ public class AggregateUserDataProcessFunction extends KeyedProcessFunction<Strin
             updateField("search_item", searchItem);
         }
 
-        // 构建输出JSON
+        // 构建输出 JSON
         JSONObject output = new JSONObject();
         output.put("uid", value.getString("uid"));
         output.put("pv", pv);
@@ -81,6 +78,7 @@ public class AggregateUserDataProcessFunction extends KeyedProcessFunction<Strin
         output.put("ba", String.join(",", getField("ba")));
         output.put("search_item", String.join(",", getField("search_item")));
 
+        // 输出聚合结果
         out.collect(output);
     }
 

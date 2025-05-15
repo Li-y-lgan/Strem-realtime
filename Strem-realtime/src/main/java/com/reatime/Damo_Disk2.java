@@ -1,27 +1,18 @@
 package com.reatime;
 
-
-
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONAware;
 import com.alibaba.fastjson.JSONObject;
-import com.reatime.bean.DimBaseCate;
+import com.reatime.bean.DimBaseCategory;
 import com.reatime.bean.UserInfo;
 import com.reatime.bean.UserInfoSup;
-import com.reatime.funtion.AggregateUserDataProcessFunction;
-import com.reatime.funtion.MapDevice;
-import com.reatime.funtion.MapDeviceAndSearchMarkModelFunc;
-import com.reatime.funtion.ProcessFilterRepeatTsDataFunc;
-import com.reatime.util.JdbcUtils;
-import com.reatime.util.KafkaUtils;
+import com.reatime.func.*;
+import com.reatime.util.*;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
-import org.apache.flink.api.common.state.ValueState;
-import org.apache.flink.api.common.state.ValueStateDescriptor;
-import org.apache.flink.api.common.typeinfo.TypeHint;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.configuration.Configuration;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -30,65 +21,74 @@ import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
-import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.apache.flink.streaming.api.functions.co.ProcessJoinFunction;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingProcessingTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.util.Collector;
 
-
-import javax.naming.Context;
 import java.sql.Connection;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Date;
-import java.util.HashMap;;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * @Package utils.Damo_Disk2
- * @Author guo.jia.hui
+ * @Author li.yan
  * @Date 2025/5/13 8:45
  * @description:
  */
+//.uid()	为算子指定唯一ID，用于状态持久化/恢复
+//.name()	为算子设置可读名称，方便在Web UI/日志中识别
 public class Damo_Disk2 {
-    private static final List<DimBaseCate> dim_base_categories;
-
+    private static final List<DimBaseCategory> dim_base_categories;
     private static final Connection connection;
 
     private static final double device_rate_weight_coefficient = 0.1; // 设备权重系数
     private static final double search_rate_weight_coefficient = 0.15; // 搜索权重系数
+    private static final double time_rate_weight_coefficient = 0.1;    // 时间权重系数
+    private static final double amount_rate_weight_coefficient = 0.15;    // 价格权重系数
+    private static final double brand_rate_weight_coefficient = 0.2;    // 品牌权重系数
+    private static final double category_rate_weight_coefficient = 0.3; // 类目权重系数
 
     static {
         try {
+            // 1. 初始化数据库连接和查询类目信息
+            // 获取MySQL数据库连接
             connection = JdbcUtils.getMySQLConnection(
-                    "jdbc:mysql://cdh03:3306/flink_realtime",
+                    "jdbc:mysql://cdh03:3306/realtime_v1",
                     "root",
                     "root");
+            // 定义SQL查询语句，查询类目信息
             String sql = "select b3.id,                          \n" +
                     "            b3.name as b3name,              \n" +
                     "            b2.name as b2name,              \n" +
                     "            b1.name as b1name               \n" +
-                    "     from flink_realtime.base_category3 as b3  \n" +
-                    "     join flink_realtime.base_category2 as b2  \n" +
+                    "     from realtime_v1.base_category3 as b3  \n" +
+                    "     join realtime_v1.base_category2 as b2  \n" +
                     "     on b3.category2_id = b2.id             \n" +
-                    "     join flink_realtime.base_category1 as b1  \n" +
+                    "     join realtime_v1.base_category1 as b1  \n" +
                     "     on b2.category1_id = b1.id";
-            dim_base_categories = JdbcUtils.queryList2(connection, sql, DimBaseCate.class, false);
+            // 执行查询并将结果存储在dim_base_categories列表中
+            dim_base_categories = JdbcUtils.queryList2(connection, sql, DimBaseCategory.class, false);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
     public static void main(String[] args) throws Exception {
-        // 1. 创建 Flink 执行环境
+        // 2. 创建Flink执行环境
+        // 创建一个流执行环境，用于构建和执行Flink作业
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(2);
+        // 设置并行度为1
+        env.setParallelism(1);
 
-        // 2. 配置 KafkaSource
+        // 3. 配置Kafka数据源
+        // 构建一个Kafka数据源，从Kafka主题user_info中读取数据
         KafkaSource<String> source = KafkaSource.<String>builder()
                 .setBootstrapServers("cdh01:9092")
                 .setTopics("user_info")
@@ -96,9 +96,11 @@ public class Damo_Disk2 {
                 .setStartingOffsets(OffsetsInitializer.earliest())
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
-
+        // 从Kafka数据源创建数据流，不生成水印
         DataStreamSource<String> userInfoJsonStream = env.fromSource(source, WatermarkStrategy.noWatermarks(), "Kafka Source");
-        // 用户主信息流处理
+
+        // 4. 处理用户主信息流
+        // 将JSON字符串转换为UserInfo对象，并进行错误处理
         SingleOutputStreamOperator<UserInfo> userInfoStream = userInfoJsonStream
                 .process(new ProcessFunction<String, UserInfo>() {
                     @Override
@@ -109,6 +111,10 @@ public class Damo_Disk2 {
 
                             UserInfo userInfo = new UserInfo();
                             userInfo.setId(after.getLong("id"));
+                            userInfo.setLoginName(after.getString("login_name"));
+                            userInfo.setName(after.getString("name"));
+                            userInfo.setPhone(after.getString("phone_num"));
+                            userInfo.setEmail(after.getString("email"));
                             userInfo.setBirthday(after.getLong("birthday"));
                             userInfo.setGender(after.getString("gender"));
                             userInfo.setTsMs(jsonObj.getLong("ts_ms"));
@@ -122,15 +128,15 @@ public class Damo_Disk2 {
                     }
                 })
                 .name("Parse UserInfo JSON")
+                // 分配时间戳和水印，允许20秒的乱序
                 .assignTimestampsAndWatermarks(
                         WatermarkStrategy.<UserInfo>forBoundedOutOfOrderness(Duration.ofSeconds(20))
                                 .withTimestampAssigner((event, timestamp) -> event.getTsMs())
                 )
                 .name("Assign Timestamps & Watermarks");
 
-        //user_info数据输出
-        //userInfoStream.print("user_info");
-
+        // 5. 配置另一个Kafka数据源
+        // 构建一个Kafka数据源，从Kafka主题user_info_sup_msg中读取数据
         KafkaSource<String> source2 = KafkaSource.<String>builder()
                 .setBootstrapServers("cdh01:9092")
                 .setTopics("user_info_sup_msg")
@@ -138,8 +144,9 @@ public class Damo_Disk2 {
                 .setStartingOffsets(OffsetsInitializer.earliest())
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
-
+        // 从Kafka数据源创建数据流，不生成水印
         DataStreamSource<String> userInfoSupJsonStream = env.fromSource(source2, WatermarkStrategy.noWatermarks(), "Kafka Source");
+        // 将JSON字符串转换为UserInfoSup对象
         SingleOutputStreamOperator<UserInfoSup> userInfoSupStream = userInfoSupJsonStream
                 .process(new ProcessFunction<String, UserInfoSup>() {
                     @Override
@@ -158,15 +165,14 @@ public class Damo_Disk2 {
                     }
                 })
                 .name("Parse UserInfoSup JSON")
+                // 分配时间戳和水印，允许20秒的乱序
                 .assignTimestampsAndWatermarks(
                         WatermarkStrategy.<UserInfoSup>forBoundedOutOfOrderness(Duration.ofSeconds(20))
                                 .withTimestampAssigner((event, timestamp) -> event.getTsMs())
                 );
 
-        //user_info_sup数据输出
-        //userInfoSupStream.print("user_info_sup");
-
-        // 3. 数据关联和处理
+        // 6. 数据关联和处理
+        // 按用户ID进行分组，然后进行区间连接，连接时间范围为前后30分钟
         DataStream<Tuple2<UserInfo, UserInfoSup>> joinedStream = userInfoStream
                 .keyBy(UserInfo::getId)
                 .intervalJoin(userInfoSupStream.keyBy(UserInfoSup::getUid))
@@ -179,28 +185,30 @@ public class Damo_Disk2 {
                     }
                 });
 
-        // 打印关联结果
-        //joinedStream.print("Joined Stream");
-
-        // 4. 转换为达摩盘标签格式
+        // 7. 转换为达摩盘标签格式
+        // 将关联结果转换为达摩盘标签格式，包含用户ID、年龄分组、性别、身高、体重、星座等信息
         SingleOutputStreamOperator<Map<String, String>> dmpTagsStream = joinedStream
                 .map(new MapFunction<Tuple2<UserInfo, UserInfoSup>, Map<String, String>>() {
                     @Override
                     public Map<String, String> map(Tuple2<UserInfo, UserInfoSup> value) {
                         Map<String, String> tags = new HashMap<>();
 
-                        tags.put("uid", String.valueOf(value.f0.getId()));
-
                         // 用户ID
                         tags.put("user_id", String.valueOf(value.f0.getId()));
+                        tags.put("login_name", value.f0.getLoginName());
+                        tags.put("name", value.f0.getName());
+                        tags.put("phone", value.f0.getPhone());
+                        tags.put("email", value.f0.getEmail());
 
                         // 年龄分组 (根据生日计算)
                         long birthdayTimestamp = value.f0.getBirthday();
+                        // 将生日时间戳转换为LocalDate对象 (LocalDate)，并设置时区为当前时区，提取Date(yyyy-MM-dd)
                         LocalDate birth_day = Instant.ofEpochMilli(birthdayTimestamp)
                                 .atZone(ZoneId.systemDefault())
                                 .toLocalDate();
                         int age = LocalDate.now().getYear() - birth_day.getYear();
                         String ageGroup = getAgeGroup(age);
+                        tags.put("age", String.valueOf(age));
                         tags.put("age_group", ageGroup);
 
                         // 性别处理 (主信息中gender为null表示家庭用户)
@@ -294,72 +302,70 @@ public class Damo_Disk2 {
                         int day = date.getDayOfMonth();
 
                         // 星座日期范围定义
-                        if ((month == 12 && day >= 22) || (month == 1 && day <= 19)) return "摩羯座";
-                        else if (month == 1 || month == 2 && day <= 18) return "水瓶座";
-                        else if (month == 2 || month == 3 && day <= 20) return "双鱼座";
-                        else if (month == 3 || month == 4 && day <= 19) return "白羊座";
-                        else if (month == 4 || month == 5 && day <= 20) return "金牛座";
-                        else if (month == 5 || month == 6 && day <= 21) return "双子座";
-                        else if (month == 6 || month == 7 && day <= 22) return "巨蟹座";
-                        else if (month == 7 || month == 8 && day <= 22) return "狮子座";
-                        else if (month == 8 || month == 9 && day <= 22) return "处女座";
-                        else if (month == 9 || month == 10 && day <= 23) return "天秤座";
-                        else if (month == 10 || month == 11 && day <= 22) return "天蝎座";
-                        else return "射手座";
+                        if (month == 1) {
+                            return (day <= 19) ? "摩羯座" : "水瓶座";      // 1月1日-1月19日:摩羯座 | 1月20日-1月31日:水瓶座
+                        } else if (month == 2) {
+                            return (day <= 18) ? "水瓶座" : "双鱼座";      // 2月1日-2月18日:水瓶座 | 2月19日-2月29日:双鱼座
+                        } else if (month == 3) {
+                            return (day <= 20) ? "双鱼座" : "白羊座";      // 3月1日-3月20日:双鱼座 | 3月21日-3月31日:白羊座
+                        } else if (month == 4) {
+                            return (day <= 19) ? "白羊座" : "金牛座";      // 4月1日-4月19日:白羊座 | 4月20日-4月30日:金牛座
+                        } else if (month == 5) {
+                            return (day <= 20) ? "金牛座" : "双子座";      // 5月1日-5月20日:金牛座 | 5月21日-5月31日:双子座
+                        } else if (month == 6) {
+                            return (day <= 21) ? "双子座" : "巨蟹座";      // 6月1日-6月21日:双子座 | 6月22日-6月30日:巨蟹座
+                        } else if (month == 7) {
+                            return (day <= 22) ? "巨蟹座" : "狮子座";      // 7月1日-7月22日:巨蟹座 | 7月23日-7月31日:狮子座
+                        } else if (month == 8) {
+                            return (day <= 22) ? "狮子座" : "处女座";      // 8月1日-8月22日:狮子座 | 8月23日-8月31日:处女座
+                        } else if (month == 9) {
+                            return (day <= 22) ? "处女座" : "天秤座";      // 9月1日-9月22日:处女座 | 9月23日-9月30日:天秤座
+                        } else if (month == 10) {
+                            return (day <= 23) ? "天秤座" : "天蝎座";      // 10月1日-10月23日:天秤座 | 10月24日-10月31日:天蝎座
+                        } else if (month == 11) {
+                            return (day <= 22) ? "天蝎座" : "射手座";      // 11月1日-11月22日:天蝎座 | 11月23日-11月30日:射手座
+                        } else {
+                            return (day <= 21) ? "射手座" : "摩羯座";      // 12月1日-12月21日:射手座 | 12月22日-12月31日:摩羯座
+                        }
                     }
                 })
                 .name("Convert to DMP Tags");
 
-        // 5. 输出结果
+        // 8. 输出结果
+        // 打印达摩盘标签数据
         dmpTagsStream.print("DMP Tags");
+        // 将达摩盘标签数据转换为字符串并写入Kafka主题damo_disk_one
+        KafkaSink<String> damo_disk_one = KafkaUtil.getKafkaProduct(Config.KAFKA_BOOT_SERVER, "damo_disk_one");
+        dmpTagsStream.map((MapFunction<Map<String, String>, String>) Object::toString).sinkTo(damo_disk_one);
 
+        // 9. 处理页面日志数据
+        // 从Kafka主题topic_log中读取页面日志数据
         SingleOutputStreamOperator<String> kafkaPageLogSource = env.fromSource(
-                        KafkaUtils.buildKafkaSecureSource(
-                                "cdh01:9092",
-                                "topic_log",
-                                new Date().toString(),
-                                OffsetsInitializer.earliest()
-                        ),
-                        WatermarkStrategy.<String>forBoundedOutOfOrderness(Duration.ofSeconds(3))
-                                .withTimestampAssigner((event, timestamp) -> {
-                                            JSONObject jsonObject = JSONObject.parseObject(event);
-                                            if (event != null && jsonObject.containsKey("ts_ms")) {
-                                                try {
-                                                    return JSONObject.parseObject(event).getLong("ts_ms");
-                                                } catch (Exception e) {
-                                                    e.printStackTrace();
-                                                    System.err.println("Failed to parse event as JSON or get ts_ms: " + event);
-                                                    return 0L;
-                                                }
-                                            }
-                                            return 0L;
-                                        }
-                                ),
-                        "kafka_page_log_source"
-                ).uid("kafka_page_log_source")
+                KafkaUtils.buildKafkaSecureSource(
+                        "cdh01:9092,cdh02:9092.cdh03:9092",
+                        "topic_log",
+                        new Date().toString(),
+                        OffsetsInitializer.earliest()
+                ),
+                WatermarkUtil.WatermarkStrategy(),
+                "kafka_page_log_source"
+        ).uid("kafka_page_log_source")
                 .name("kafka_page_log_source");
-
+        // 将JSON字符串转换为JSONObject对象
         SingleOutputStreamOperator<JSONObject> dataPageLogConvertJsonDs = kafkaPageLogSource.map(JSON::parseObject)
                 .uid("convert json page log")
                 .name("convert json page log");
-        //dataPageLogConvertJsonDs.print("dataPageLogConvertJsonDs");
-
-        // 设备信息 + 关键词搜索
+        // 提取设备信息和关键词搜索信息
         SingleOutputStreamOperator<JSONObject> logDeviceInfoDs = dataPageLogConvertJsonDs.map(new MapDevice())
                 .uid("get device info & search")
                 .name("get device info & search");
-        //logDeviceInfoDs.print("设备信息 + 关键词搜索");
-
-        //对数据进行逻辑分区
+        // 过滤掉用户ID为空的数据
         SingleOutputStreamOperator<JSONObject> filterNotNullUidLogPageMsg = logDeviceInfoDs.filter(data -> !data.getString("uid").isEmpty());
+        // 按用户ID进行分组
         KeyedStream<JSONObject, String> keyedStreamLogPageMsg = filterNotNullUidLogPageMsg.keyBy(data -> data.getString("uid"));
-        //keyedStreamLogPageMsg.print("逻辑分区");
-
-
+        // 进行状态去重
         SingleOutputStreamOperator<JSONObject> processStagePageLogDs = keyedStreamLogPageMsg.process(new ProcessFilterRepeatTsDataFunc());
-        //processStagePageLogDs.print("状态去重");
-
-        // 2 min 分钟窗口
+        // 进行2分钟滚动窗口聚合
         SingleOutputStreamOperator<JSONObject> win2MinutesPageLogsDs = processStagePageLogDs.keyBy(data -> data.getString("uid"))
                 .process(new AggregateUserDataProcessFunction())
                 .keyBy(data -> data.getString("uid"))
@@ -367,61 +373,64 @@ public class Damo_Disk2 {
                 .reduce((value1, value2) -> value2)
                 .uid("win 2 minutes page count msg")
                 .name("win 2 minutes page count msg");
-        //win2MinutesPageLogsDs.print("2 min 分钟窗口");
+        // 设置打分模型
+        SingleOutputStreamOperator<JSONObject> mapDeviceAndSearchRateResultDs = win2MinutesPageLogsDs.map(new MapDeviceAndSearchMarkModelFunc(dim_base_categories, device_rate_weight_coefficient, search_rate_weight_coefficient));
+        // 打印打分模型结果
+        mapDeviceAndSearchRateResultDs.print("打分模型");
+        // 将打分模型结果转换为JSON字符串并写入Kafka主题damo_disk_three
+        SingleOutputStreamOperator<String> log_score = mapDeviceAndSearchRateResultDs.map((MapFunction<JSONObject, String>) JSONAware::toJSONString);
+        KafkaSink<String> damo_disk_three = KafkaUtil.getKafkaProduct(Config.KAFKA_BOOT_SERVER, "damo_disk_three");
+        log_score.sinkTo(damo_disk_three);
 
-        KeyedStream<JSONObject, String> behaviorKeyedStream = win2MinutesPageLogsDs
-                .keyBy(data -> data.getString("uid"));
+        // 10. 处理用户订单数据
+        // 从Kafka主题disk_data中读取用户订单数据
+        SingleOutputStreamOperator<String> kafkaCdcDb = env.fromSource(
+                KafkaUtils.buildKafkaSecureSource(
+                        Config.KAFKA_BOOT_SERVER,
+                        "disk_data",
+                        new Date().toString(),
+                        OffsetsInitializer.earliest()
+                ),
+                WatermarkUtil.WatermarkStrategy(),
+                "kafka_cdc_db_source"
+        ).uid("kafka_cdc_db_source").name("kafka_cdc_db_source");
+        // 将JSON字符串转换为JSONObject对象
+        SingleOutputStreamOperator<JSONObject> dataConvertJsonDs = kafkaCdcDb.map(JSON::parseObject)
+                .uid("convert json cdc db")
+                .name("convert json cdc db");
+        // 过滤出订单信息数据
+        SingleOutputStreamOperator<JSONObject> cdcOrderInfoDs = dataConvertJsonDs.filter(data -> data.getJSONObject("source").getString("table").equals("order_info"))
+                .uid("filter kafka order info")
+                .name("filter kafka order info");
+        // 过滤出订单详情数据
+        SingleOutputStreamOperator<JSONObject> cdcOrderDetailDs = dataConvertJsonDs.filter(data -> data.getJSONObject("source").getString("table").equals("order_detail"))
+                .uid("filter kafka order detail")
+                .name("filter kafka order detail");
+        // 处理订单信息数据
+        SingleOutputStreamOperator<JSONObject> mapCdcOrderInfoDs = cdcOrderInfoDs.map(new MapOrderInfoDataFunc()).filter(obj -> !obj.isEmpty());
+        // 处理订单详情数据
+        SingleOutputStreamOperator<JSONObject> mapCdcOrderDetailDs = cdcOrderDetailDs.map(new MapOrderDetailFunc()).filter(obj -> !obj.isEmpty());
+        // 过滤掉订单ID为空的订单信息数据
+        SingleOutputStreamOperator<JSONObject> filterNotNullCdcOrderInfoDs = mapCdcOrderInfoDs.filter(data -> data.getString("id") != null && !data.getString("id").isEmpty());
+        // 过滤掉订单ID为空的订单详情数据
+        SingleOutputStreamOperator<JSONObject> filterNotNullCdcOrderDetailDs = mapCdcOrderDetailDs.filter(data -> data.getString("order_id") != null && !data.getString("order_id").isEmpty());
+        // 按订单ID进行分组
+        KeyedStream<JSONObject, String> keyedStreamCdcOrderInfoDs = filterNotNullCdcOrderInfoDs.keyBy(data -> data.getString("id"));
+        // 按订单ID进行分组
+        KeyedStream<JSONObject, String> keyedStreamCdcOrderDetailDs = filterNotNullCdcOrderDetailDs.keyBy(data -> data.getString("order_id"));
+        // 进行区间连接，连接时间范围为前后2分钟
+        SingleOutputStreamOperator<JSONObject> processIntervalJoinOrderInfoAndDetailDs = keyedStreamCdcOrderInfoDs.intervalJoin(keyedStreamCdcOrderDetailDs)
+                .between(Time.minutes(-2), Time.minutes(2))
+                .process(new IntervalDbOrderInfoJoinOrderDetailProcessFunc());
+        // 进行去重处理
+        SingleOutputStreamOperator<JSONObject> processDuplicateOrderInfoAndDetailDs = processIntervalJoinOrderInfoAndDetailDs.keyBy(data -> data.getString("detail_id"))
+                .process(new processOrderInfoAndDetailFunc());
+        // 应用订单信息和详情打分模型
+        SingleOutputStreamOperator<JSONObject> mapOrderInfoAndDetailModelDs = processDuplicateOrderInfoAndDetailDs.map(new MapOrderAndDetailRateModelFunc(dim_base_categories, time_rate_weight_coefficient, amount_rate_weight_coefficient, brand_rate_weight_coefficient, category_rate_weight_coefficient));
+        // 打印订单信息和详情打分模型结果
+        mapOrderInfoAndDetailModelDs.print("result");
 
-        KeyedStream<Map<String, String>, String> dmpTagsKeyedStream = dmpTagsStream
-                .keyBy(tags -> tags.get("uid"));
-
-        // 实现CoProcessFunction关联两条流
-        DataStream<JSONObject> joinedStream2 = behaviorKeyedStream
-                .connect(dmpTagsKeyedStream)
-                .process(new CoProcessFunction<JSONObject, Map<String, String>, JSONObject>() {
-
-                    // 使用状态存储用户基础信息
-                    private transient ValueState<Map<String, String>> userTagsState;
-
-                    @Override
-                    public void open(Configuration parameters) {
-                        // 初始化状态描述符
-                        ValueStateDescriptor<Map<String, String>> descriptor =
-                                new ValueStateDescriptor<>("userTagsState", TypeInformation.of(new TypeHint<Map<String, String>>() {}));
-                        userTagsState = getRuntimeContext().getState(descriptor);
-                    }
-
-                    @Override
-                    public void processElement1(JSONObject behavior, Context ctx, Collector<JSONObject> out) throws Exception {
-                        // 处理行为数据：检查是否有对应的用户基础信息
-                        Map<String, String> tags = userTagsState.value();
-
-                        if (tags != null) {
-                            // 合并行为数据和基础信息
-                            JSONObject result = new JSONObject();
-                            result.putAll(behavior);  // 行为数据
-                            result.putAll(tags);      // 基础信息
-                            out.collect(result);
-                        } else {
-                            // 可以输出未关联的数据或记录日志
-                            System.out.println("No user tags found for uid: " + behavior.getString("uid"));
-                        }
-                    }
-
-                    @Override
-                    public void processElement2(Map<String, String> tags, Context ctx, Collector<JSONObject> out) throws Exception {
-                        // 缓存用户基础信息到状态
-                        userTagsState.update(tags);
-
-                        // 注意：这里不直接输出，因为需要等待行为数据到达时才关联
-                    }
-                });
-        //joinedStream2.print("关联后的流");
-
-        // 3. 将关联后的流输入打分模型
-        joinedStream2.map(new MapDeviceAndSearchMarkModelFunc(dim_base_categories, device_rate_weight_coefficient, search_rate_weight_coefficient))
-                .print("打分模型");
-
+        // 11. 执行Flink作业
         env.execute("Optimized User Tags Processing");
     }
 }
