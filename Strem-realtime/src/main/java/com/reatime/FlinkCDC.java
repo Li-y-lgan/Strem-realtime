@@ -15,7 +15,7 @@ import java.util.Properties;
 /**
  * @Package PACKAGE_NAME.FlinkCDC
  * @Author li.yan
- * @Date 2025/5/12 16:44
+ * @Date 2025/5/13 16:44
  * @description: 获取mysql表数据
  */
 public class FlinkCDC {
