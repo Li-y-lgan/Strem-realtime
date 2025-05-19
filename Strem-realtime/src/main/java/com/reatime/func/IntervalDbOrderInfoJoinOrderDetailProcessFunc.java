@@ -21,7 +21,7 @@ public class IntervalDbOrderInfoJoinOrderDetailProcessFunc extends ProcessJoinFu
         result.put("sku_num", jsonObject2.getLongValue("sku_num"));
         // 将订单详情中的优惠券分摊金额添加到结果中
         result.put("split_coupon_amount", jsonObject2.getString("sku_num"));
-        // 将订单详情中的商品名称添加到结果中
+
         result.put("sku_name", jsonObject2.getString("sku_name"));
         // 将订单详情中的订单价格添加到结果中
         result.put("order_price", jsonObject2.getString("order_price"));

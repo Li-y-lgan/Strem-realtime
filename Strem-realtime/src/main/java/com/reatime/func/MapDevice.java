@@ -31,7 +31,7 @@ public class MapDevice extends RichMapFunction<JSONObject, JSONObject> {
             }
         }
         JSONObject deviceInfo = result.getJSONObject("deviceInfo");
-        // 拆分字符串并取第一部分(Android 10,拆分出可用的字符串)
+
         String os = deviceInfo.getString("os").split(" ")[0];
         deviceInfo.put("os", os);
 

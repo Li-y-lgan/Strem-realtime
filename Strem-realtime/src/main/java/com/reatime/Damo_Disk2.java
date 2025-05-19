@@ -88,7 +88,6 @@ public class Damo_Disk2 {
         env.setParallelism(1);
 
         // 3. 配置Kafka数据源
-        // 构建一个Kafka数据源，从Kafka主题user_info中读取数据
         KafkaSource<String> source = KafkaSource.<String>builder()
                 .setBootstrapServers("cdh01:9092")
                 .setTopics("user_info")

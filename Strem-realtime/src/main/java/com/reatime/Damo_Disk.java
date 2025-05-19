@@ -36,7 +36,6 @@ public class Damo_Disk {
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
 
-        //  将Kafka数据源添加到作业从Kafka数据源创建数据流，不生成水位线
         DataStreamSource<String> disk = env.fromSource(source, WatermarkStrategy.noWatermarks(), "Kafka Source");
         // 将JSON字符串转换为JSONObject对象
         SingleOutputStreamOperator<JSONObject> disk_json = disk.map((MapFunction<String, JSONObject>) JSON::parseObject);
