@@ -21,10 +21,10 @@ public class processOrderInfoAndDetailFunc extends KeyedProcessFunction<String, 
 
     @Override
     public void open(Configuration parameters) {
-        // 创建一个 ValueState 描述符，用于存储最新的时间戳
+
         ValueStateDescriptor<Long> descriptor =
                 new ValueStateDescriptor<>("latestTs", Long.class);
-        // 启用状态的时间过期机制，设置过期时间为 1 小时
+        //
         descriptor.enableTimeToLive(StateTtlConfig.newBuilder(Time.hours(1)).build());
         // 获取运行时上下文的状态
         latestTsState = getRuntimeContext().getState(descriptor);

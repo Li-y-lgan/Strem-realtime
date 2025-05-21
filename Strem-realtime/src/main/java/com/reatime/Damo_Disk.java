@@ -27,7 +27,7 @@ public class Damo_Disk {
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        //  配置Kafka数据源构建一个Kafka数据源，从Kafka主题disk_data中读取数据
+
         KafkaSource<String> source = KafkaSource.<String>builder()
                 .setBootstrapServers("cdh01:9092")
                 .setTopics("disk_data")

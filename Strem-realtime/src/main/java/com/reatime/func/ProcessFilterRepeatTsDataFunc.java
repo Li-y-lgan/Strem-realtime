@@ -25,7 +25,7 @@ public class ProcessFilterRepeatTsDataFunc extends KeyedProcessFunction<String, 
 
     @Override
     public void open(Configuration parameters) {
-        // 创建一个 ValueState 描述符，用于存储已处理的数据集合
+
         ValueStateDescriptor<HashSet<String>> descriptor = new ValueStateDescriptor<>(
                 "processedDataState",
                 TypeInformation.of(new org.apache.flink.api.common.typeinfo.TypeHint<HashSet<String>>() {})
@@ -36,14 +36,14 @@ public class ProcessFilterRepeatTsDataFunc extends KeyedProcessFunction<String, 
 
     @Override
     public void processElement(JSONObject value, Context ctx, Collector<JSONObject> out) throws Exception {
-        // 获取已处理的数据集合
+
         HashSet<String> processedData = processedDataState.value();
         if (processedData == null) {
             // 如果集合为空，则创建一个新的集合
             processedData = new HashSet<>();
         }
 
-        // 将当前记录转换为 JSON 字符串
+
         String dataStr = value.toJSONString();
         LOG.info("Processing data: {}", dataStr);
         // 检查集合中是否包含当前记录
