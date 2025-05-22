@@ -76,7 +76,7 @@ public class Damo_Disk {
                         .build()
                 )
                 .build();
-        // 将主流数据写入Kafka主题user_info
+
         process.sinkTo(sink);
 
         // 6. 配置另一个Kafka Sink
