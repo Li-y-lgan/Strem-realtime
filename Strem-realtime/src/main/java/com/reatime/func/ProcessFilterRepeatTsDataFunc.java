@@ -30,7 +30,7 @@ public class ProcessFilterRepeatTsDataFunc extends KeyedProcessFunction<String, 
                 "processedDataState",
                 TypeInformation.of(new org.apache.flink.api.common.typeinfo.TypeHint<HashSet<String>>() {})
         );
-        // 获取运行时上下文的状态
+
         processedDataState = getRuntimeContext().getState(descriptor);
     }
 

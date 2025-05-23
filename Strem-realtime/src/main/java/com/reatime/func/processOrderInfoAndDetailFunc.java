@@ -26,7 +26,7 @@ public class processOrderInfoAndDetailFunc extends KeyedProcessFunction<String, 
                 new ValueStateDescriptor<>("latestTs", Long.class);
         //
         descriptor.enableTimeToLive(StateTtlConfig.newBuilder(Time.hours(1)).build());
-        // 获取运行时上下文的状态
+
         latestTsState = getRuntimeContext().getState(descriptor);
     }
 

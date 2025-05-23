@@ -51,7 +51,7 @@ public class Damo_Disk {
             public void processElement(JSONObject jsonObject, ProcessFunction<JSONObject, String>.Context context, Collector<String> collector) {
                 String table = jsonObject.getJSONObject("source").getString("table");
                 if (table != null && table.equals("user_info")) {
-                    // 如果表名为user_info，将数据发送到主流
+                    //
                     collector.collect(jsonObject.toJSONString());
                 } else if (table != null && table.equals("user_info_sup")){
                     // 如果表名为user_info_sup，将数据发送到侧输出流
@@ -67,7 +67,7 @@ public class Damo_Disk {
         userinfo_sup_msg.print("测流数据");
 
         // 5. 配置Kafka Sink
-        // 构建一个Kafka Sink，用于将主流数据写入Kafka主题user_info
+        //
         KafkaSink<String> sink = KafkaSink.<String>builder()
                 .setBootstrapServers("cdh01:9092")
                 .setRecordSerializer(KafkaRecordSerializationSchema.builder()

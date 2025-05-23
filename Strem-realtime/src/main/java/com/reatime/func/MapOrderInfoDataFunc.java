@@ -61,7 +61,7 @@ public class MapOrderInfoDataFunc extends RichMapFunction<JSONObject, JSONObject
     private String determineLoginPeriod(long timestamp) {
         // 将时间戳转换为 Instant 对象
         Instant instant = Instant.ofEpochMilli(timestamp);
-        // 将 Instant 对象转换为本地日期时间对象，使用系统默认时区
+
         LocalDateTime dateTime = LocalDateTime.ofInstant(instant, ZoneId.systemDefault());
         // 从本地日期时间对象中提取时间部分
         LocalTime time = dateTime.toLocalTime();

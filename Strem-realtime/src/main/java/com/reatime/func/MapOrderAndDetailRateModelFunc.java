@@ -65,7 +65,7 @@ public class MapOrderAndDetailRateModelFunc extends RichMapFunction<JSONObject, 
                 "join realtime_v1.base_trademark        \n" +
                 "on realtime_v1.spu_info.tm_id = realtime_v1.base_trademark.id";
 
-        // 执行 SQL 查询，获取 SKU 信息列表
+
         dimSkuInfoMsgs = JdbcUtils.queryList2(connection, querySkuSql, DimSkuInfoMsg.class);
     }
 
