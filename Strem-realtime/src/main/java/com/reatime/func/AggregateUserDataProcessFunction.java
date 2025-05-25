@@ -28,7 +28,7 @@ public class AggregateUserDataProcessFunction extends KeyedProcessFunction<Strin
     private transient MapState<String, Set<String>> fieldsState;
 
     @Override
-    public void open(Configuration parameters) throws Exception {
+    public void open(Configuration parameters) {
         // 初始化 PV 状态
         pvState = getRuntimeContext().getState(
                 new ValueStateDescriptor<>("pv-state", Long.class)
@@ -78,7 +78,7 @@ public class AggregateUserDataProcessFunction extends KeyedProcessFunction<Strin
         output.put("ba", String.join(",", getField("ba")));
         output.put("search_item", String.join(",", getField("search_item")));
 
-        // 输出聚合结果
+
         out.collect(output);
     }
 
